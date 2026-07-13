@@ -1,0 +1,28 @@
+# Rust and Tauri outputs
+/target/
+**/target/
+**/gen/
+
+# Node and Vite outputs
+/node_modules/
+**/node_modules/
+/dist/
+**/dist/
+
+# Runtime data and local configuration
+/logs/
+/calibration/
+/config.json
+/input-debug-*.log
+/app-settings.json
+
+# Local tools and generated Windows binaries
+/.codex_tmp_*
+*.pdb
+*.dll
+*.exe
+
+# Nested repositories removed by the migration
+/ArknightsCostBarRuler/
+/MaaAssistantArknights/
+/prts-plus/

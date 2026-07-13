@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "apps/cli",
+    "apps/desktop/src-tauri",
+    "crates/app-contract",
+    "crates/app-core",
+    "crates/ruler-bridge",
+]
+resolver = "2"
+exclude = ["third_party/cost-bar-ruler"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

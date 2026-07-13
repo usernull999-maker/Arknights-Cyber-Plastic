@@ -1,0 +1,9 @@
+[package]
+name = "arknights-super-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+arknights-super-core = { path = "../../crates/app-core" }
+arknights-super-ruler-bridge = { path = "../../crates/ruler-bridge" }

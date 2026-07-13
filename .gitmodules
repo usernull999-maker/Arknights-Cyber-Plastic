@@ -1,0 +1,4 @@
+[submodule "third_party/cost-bar-ruler"]
+	path = third_party/cost-bar-ruler
+	url = https://github.com/ZeroAd-06/ArknightsCostBarRuler.git
+	branch = rust-rewrite
