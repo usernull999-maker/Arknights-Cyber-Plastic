@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 
 type TileCoord = { x: number; y: number };
+type StageId = "level_crisis_v2_05-01" | "main_08-17";
+type StageInfo = { stage_id: StageId; name: string; width: number; height: number };
 
 type RoiBounds = {
   left: number;
@@ -34,6 +36,7 @@ type RoiBounds = {
 };
 
 type AppSettings = {
+  stage_id: StageId;
   config_path: string;
   skill_key: string;
   retreat_key: string;
@@ -58,6 +61,7 @@ type UiOperationLine = {
 type RecordSummary = {
   id: string;
   title: string;
+  stage_id: StageId;
   stage_name: string;
   created_at_ms: number;
   updated_at_ms: number;
@@ -69,6 +73,7 @@ type RecordSummary = {
 type CurrentBattleSnapshot = {
   id: string;
   title: string;
+  stage_id: StageId;
   stage_name: string;
   created_at_ms: number;
   elapsed_frames: number;
@@ -119,6 +124,7 @@ type DetailPreviewSnapshot = {
 };
 
 type UiSnapshot = {
+  available_stages: StageInfo[];
   settings: AppSettings;
   setup: SetupSnapshot;
   calibration: CalibrationSnapshot;
@@ -164,8 +170,9 @@ type ImportRecordResponse = {
 };
 
 const defaultSettings: AppSettings = {
+  stage_id: "level_crisis_v2_05-01",
   config_path: "config.json",
-  skill_key: "SPACE",
+  skill_key: "RBUTTON",
   retreat_key: "2",
   window_opacity: 1,
   always_on_top: false,
@@ -180,6 +187,10 @@ const defaultSettings: AppSettings = {
 };
 
 const tauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const mockStages: StageInfo[] = [
+  { stage_id: "level_crisis_v2_05-01", name: "墨染书阁", width: 12, height: 8 },
+  { stage_id: "main_08-17", name: "JT8-3 昂首，足践烈焰", width: 15, height: 9 },
+];
 const mockOperations = [
   createOperation(0, "00:00:00", "DP", "伊内丝", { x: 8, y: 6 }),
   createOperation(1, "00:00:08", "US", "伊内丝", { x: 8, y: 6 }),
@@ -191,6 +202,7 @@ const mockRecord: RecordDocument = {
   meta: {
     id: "mock-record-1",
     title: "7.2 03:38:00 26s00f",
+    stage_id: "level_crisis_v2_05-01",
     stage_name: "墨染书阁",
     created_at_ms: Date.now() - 86_400_000,
     updated_at_ms: Date.now() - 86_400_000,
@@ -203,6 +215,7 @@ const mockRecord: RecordDocument = {
 };
 
 let mockSnapshot: UiSnapshot = {
+  available_stages: mockStages,
   settings: defaultSettings,
   setup: {
     phase: "ready",
@@ -228,6 +241,7 @@ let mockSnapshot: UiSnapshot = {
   current_battle: {
     id: "mock-current",
     title: "7.3 03:38:48",
+    stage_id: "level_crisis_v2_05-01",
     stage_name: "墨染书阁",
     created_at_ms: Date.now(),
     elapsed_frames: 0,
@@ -248,6 +262,7 @@ const SPLITTER_HEIGHT_PX = 16;
 
 export function App() {
   const [snapshot, setSnapshot] = useState<UiSnapshot>({
+    available_stages: [],
     settings: defaultSettings,
     setup: {
       phase: "needs_target",
@@ -611,7 +626,7 @@ export function App() {
   );
 
   const comparisonHighlight = useMemo(() => {
-    if (!selectedRecord || !snapshot.current_battle) {
+    if (!selectedRecord || !snapshot.current_battle || selectedRecord.meta.stage_id !== snapshot.current_battle.stage_id) {
       return -1;
     }
     let index = -1;
@@ -695,7 +710,7 @@ export function App() {
       promptState.leadFrames !== leadFrames ||
       promptState.enabled !== enabled;
 
-    if (!enabled || !battle || !selectedRecord || comparisonOperations.length === 0) {
+    if (!enabled || !battle || !selectedRecord || selectedRecord.meta.stage_id !== battle.stage_id || comparisonOperations.length === 0) {
       promptStateRef.current = {
         battleId,
         recordId,
@@ -1099,6 +1114,8 @@ export function App() {
     <div className="app-shell">
       {showSettings ? (
         <SettingsView
+          availableStages={snapshot.available_stages}
+          stageLocked={snapshot.current_battle !== null}
           busy={busy}
           calibration={snapshot.calibration}
           captureState={snapshot.capture_state}
@@ -1136,7 +1153,7 @@ export function App() {
                   ? `${snapshot.current_battle.stage_name} ${formatBattleStateLabel(
                       snapshot.current_battle.battle_state,
                     )}`
-                  : "等待进入关卡"}
+                  : `${snapshot.available_stages.find((stage) => stage.stage_id === snapshot.settings.stage_id)?.name ?? "所选关卡"} · 等待进入关卡`}
               </span>
             </div>
             <div className="header-actions">
@@ -1165,7 +1182,7 @@ export function App() {
                 <option value="">无对照</option>
                 {snapshot.records.map((record) => (
                   <option key={record.id} value={record.id}>
-                    {record.title}
+                    {record.stage_name} · {record.title}
                   </option>
                 ))}
               </select>
@@ -1362,6 +1379,8 @@ function SetupView(props: {
 }
 
 function SettingsView(props: {
+  availableStages: StageInfo[];
+  stageLocked: boolean;
   settings: AppSettings;
   setup: SetupSnapshot;
   calibration: CalibrationSnapshot;
@@ -1379,6 +1398,8 @@ function SettingsView(props: {
   onChange: (settings: AppSettings) => void;
 }) {
   const {
+    availableStages,
+    stageLocked,
     settings,
     setup,
     calibration,
@@ -1428,6 +1449,30 @@ function SettingsView(props: {
           </div>
           <p className="section-copy">
             设置会自动保存；目标切换和校准启动前也会再同步一次。
+          </p>
+        </section>
+
+        <section className="settings-section">
+          <h3>关卡地图</h3>
+          <SettingField label="当前关卡">
+            <select
+              aria-label="当前关卡"
+              className="record-select"
+              disabled={stageLocked || calibrationActive || busy !== null || availableStages.length === 0}
+              onChange={(event) => onChange({ ...settings, stage_id: event.target.value as StageId })}
+              value={settings.stage_id}
+            >
+              {availableStages.map((stage) => (
+                <option key={stage.stage_id} value={stage.stage_id}>
+                  {stage.name}（{stage.width}×{stage.height}）
+                </option>
+              ))}
+            </select>
+          </SettingField>
+          <p className="section-copy">
+            {stageLocked
+              ? "正在记录战斗，请结束战斗后再切换关卡。"
+              : "进入战斗前手动选择关卡，设置会自动保存；格子坐标与新记录使用所选地图。JT8-3 为普通关卡。"}
           </p>
         </section>
 
@@ -1529,6 +1574,8 @@ function SettingsView(props: {
             <SettingField label="技能键">
               <input
                 className="text-input"
+                list="operation-hotkeys"
+                placeholder="RBUTTON（鼠标右键）"
                 onChange={(event) => onChange({ ...settings, skill_key: event.target.value })}
                 value={settings.skill_key}
               />
@@ -1536,11 +1583,22 @@ function SettingsView(props: {
             <SettingField label="撤退键">
               <input
                 className="text-input"
+                list="operation-hotkeys"
                 onChange={(event) => onChange({ ...settings, retreat_key: event.target.value })}
                 value={settings.retreat_key}
               />
             </SettingField>
           </div>
+          <datalist id="operation-hotkeys">
+            <option value="RBUTTON">鼠标右键</option>
+            <option value="Q">Q</option>
+            <option value="E">E</option>
+            <option value="2">2</option>
+          </datalist>
+          <p className="section-copy">
+            填写与模拟器一致的按键；RBUTTON 表示鼠标右键，也可直接填写“鼠标右键”。
+            空格若用于暂停，请勿将技能键设为 SPACE。留空则不监听该操作。
+          </p>
         </section>
 
         <section className="settings-section">
@@ -1601,9 +1659,27 @@ function SettingsView(props: {
 
         <section className="settings-section">
           <h3>名称截图框</h3>
+          <p className="section-copy">
+            以下数值表示从画面各边裁掉的比例，数值越大，保留区域越小。
+            选中干员后检查预览，确保完整姓名都在框内。
+          </p>
+          <div className="editor-actions">
+            <button
+              className="ghost-button"
+              onClick={() => onChange({ ...settings, operator_name_roi: { ...defaultSettings.operator_name_roi } })}
+              type="button"
+            >
+              恢复默认截图框
+            </button>
+          </div>
+          {1 - settings.operator_name_roi.left - settings.operator_name_roi.right < 0.1 && (
+            <p className="section-copy" role="alert">
+              当前截图框宽度不足画面的 10%，可能截断姓名。建议恢复默认后检查预览。
+            </p>
+          )}
           <div className="two-col">
             <RoiField
-              label="左"
+              label="左侧裁掉"
               value={settings.operator_name_roi.left}
               onChange={(value) =>
                 onChange({
@@ -1613,7 +1689,7 @@ function SettingsView(props: {
               }
             />
             <RoiField
-              label="上"
+              label="上方裁掉"
               value={settings.operator_name_roi.top}
               onChange={(value) =>
                 onChange({
@@ -1623,7 +1699,7 @@ function SettingsView(props: {
               }
             />
             <RoiField
-              label="右"
+              label="右侧裁掉"
               value={settings.operator_name_roi.right}
               onChange={(value) =>
                 onChange({
@@ -1633,7 +1709,7 @@ function SettingsView(props: {
               }
             />
             <RoiField
-              label="下"
+              label="下方裁掉"
               value={settings.operator_name_roi.bottom}
               onChange={(value) =>
                 onChange({
@@ -1684,7 +1760,7 @@ function SettingField(props: { label: string; children: ReactNode }) {
 
 function RoiField(props: { label: string; value: number; onChange: (value: number) => void }) {
   return (
-    <SettingField label={`${props.label} ${props.value.toFixed(3)}`}>
+    <SettingField label={`${props.label} ${(props.value * 100).toFixed(1)}%`}>
       <input
         className="range-input"
         max={0.95}
@@ -2103,7 +2179,8 @@ async function mockInvoke<T>(command: string, args?: Record<string, unknown>): P
         meta: {
           id: `mock-import-${now}`,
           title,
-          stage_name: "墨染书阁",
+          stage_id: mockSnapshot.settings.stage_id,
+          stage_name: mockStages.find((stage) => stage.stage_id === mockSnapshot.settings.stage_id)!.name,
           created_at_ms: now,
           updated_at_ms: now,
           deleted: false,
@@ -2167,6 +2244,9 @@ async function mockInvoke<T>(command: string, args?: Record<string, unknown>): P
     }
     case "save_app_settings": {
       const settings = structuredClone(args?.settings as AppSettings);
+      if (settings.stage_id !== mockSnapshot.settings.stage_id && mockSnapshot.current_battle) {
+        throw new Error("请在战斗结束、记录处理完成后切换关卡");
+      }
       mockSnapshot = {
         ...mockSnapshot,
         settings,

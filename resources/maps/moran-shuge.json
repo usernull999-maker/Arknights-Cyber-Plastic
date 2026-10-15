@@ -1,0 +1,698 @@
+{
+  "schema_version": 1,
+  "stage_id": "level_crisis_v2_05-01",
+  "code": "",
+  "name": "墨染书阁",
+  "width": 12,
+  "height": 8,
+  "normal_view": [
+    0,
+    -6.1,
+    -9.76
+  ],
+  "side_view": [
+    0.9448062140292399,
+    -6.6,
+    -10.61172366939915
+  ],
+  "tiles": [
+    {
+      "x": 0,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 2,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 3,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 4,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 5,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_end"
+    },
+    {
+      "x": 6,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 7,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 8,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 9,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 10,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 11,
+      "y": 0,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 0,
+      "y": 1,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 1,
+      "y": 1,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 2,
+      "y": 1,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 3,
+      "y": 1,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 4,
+      "y": 1,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 5,
+      "y": 1,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 6,
+      "y": 1,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 7,
+      "y": 1,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 8,
+      "y": 1,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 9,
+      "y": 1,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 10,
+      "y": 1,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_floor"
+    },
+    {
+      "x": 11,
+      "y": 1,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_start"
+    },
+    {
+      "x": 0,
+      "y": 2,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 1,
+      "y": 2,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_telout"
+    },
+    {
+      "x": 2,
+      "y": 2,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 3,
+      "y": 2,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 4,
+      "y": 2,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 5,
+      "y": 2,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 6,
+      "y": 2,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 7,
+      "y": 2,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_fence_bound"
+    },
+    {
+      "x": 8,
+      "y": 2,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 9,
+      "y": 2,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 10,
+      "y": 2,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 11,
+      "y": 2,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 0,
+      "y": 3,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 1,
+      "y": 3,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_fence_bound"
+    },
+    {
+      "x": 2,
+      "y": 3,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 3,
+      "y": 3,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 4,
+      "y": 3,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 5,
+      "y": 3,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 6,
+      "y": 3,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 7,
+      "y": 3,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 8,
+      "y": 3,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 9,
+      "y": 3,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 10,
+      "y": 3,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 11,
+      "y": 3,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_start"
+    },
+    {
+      "x": 0,
+      "y": 4,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 1,
+      "y": 4,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 2,
+      "y": 4,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_hole"
+    },
+    {
+      "x": 3,
+      "y": 4,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 4,
+      "y": 4,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 5,
+      "y": 4,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 6,
+      "y": 4,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 7,
+      "y": 4,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_floor"
+    },
+    {
+      "x": 8,
+      "y": 4,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 9,
+      "y": 4,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 10,
+      "y": 4,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 11,
+      "y": 4,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 0,
+      "y": 5,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 1,
+      "y": 5,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 2,
+      "y": 5,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_hole"
+    },
+    {
+      "x": 3,
+      "y": 5,
+      "buildable_type": 2,
+      "height_type": 1,
+      "tile_key": "tile_wall"
+    },
+    {
+      "x": 4,
+      "y": 5,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 5,
+      "y": 5,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 6,
+      "y": 5,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 7,
+      "y": 5,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_floor"
+    },
+    {
+      "x": 8,
+      "y": 5,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 9,
+      "y": 5,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_flystart"
+    },
+    {
+      "x": 10,
+      "y": 5,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 11,
+      "y": 5,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_telin"
+    },
+    {
+      "x": 0,
+      "y": 6,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 1,
+      "y": 6,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 2,
+      "y": 6,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_hole"
+    },
+    {
+      "x": 3,
+      "y": 6,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 4,
+      "y": 6,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_end"
+    },
+    {
+      "x": 5,
+      "y": 6,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 6,
+      "y": 6,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_start"
+    },
+    {
+      "x": 7,
+      "y": 6,
+      "buildable_type": 0,
+      "height_type": 0,
+      "tile_key": "tile_floor"
+    },
+    {
+      "x": 8,
+      "y": 6,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 9,
+      "y": 6,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_road"
+    },
+    {
+      "x": 10,
+      "y": 6,
+      "buildable_type": 1,
+      "height_type": 0,
+      "tile_key": "tile_character"
+    },
+    {
+      "x": 11,
+      "y": 6,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 0,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 1,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 2,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 3,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 4,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 5,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 6,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 7,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 8,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 9,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 10,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    },
+    {
+      "x": 11,
+      "y": 7,
+      "buildable_type": 0,
+      "height_type": 1,
+      "tile_key": "tile_forbidden"
+    }
+  ],
+  "source": {
+    "repository": "https://github.com/MaaAssistantArknights/MaaAssistantArknights",
+    "commit": "bad264489337d78882b3f93e0fb2cce4a3296f29",
+    "path": "resource/Arknights-Tile-Pos/level_crisis_v2_05-01-obt-crisis-v2-level_crisis_v2_05-01.json",
+    "sha256": "f975ee8049c581b2ae2d641ee3e70b0d75252c5c461474d20111d08c4a2fb198"
+  }
+}

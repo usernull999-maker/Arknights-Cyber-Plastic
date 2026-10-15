@@ -158,26 +158,34 @@ task; it should be completed before expanding direct use of upstream features.
 
 ## Map Tile Projection
 
-The grid feature is application code in `app-core/src/recorder.rs`, not a
-CostBarRuler capability. It is currently deliberately narrow:
+The grid feature belongs to `app-core/src/maps.rs`, not CostBarRuler. Version 1
+map files live under `resources/maps` and are embedded with `include_str!`, so
+development and packaged builds use identical data without runtime downloads.
+Each file records its source repository, commit, path and original SHA-256.
+The loader validates the schema, stage ID, dimensions, tile order and cameras.
 
-- `STAGE_MORAN_SHUGE_TILES` is one static 12 by 8 table.
-- `project_stage_tile` transforms grid coordinates with the level's camera
-  view, a 30 degree pitch, optional 10 degree side-view yaw and a 20 degree
-  perspective projection.
-- `snap_client_to_stage_tile` chooses the nearest non-forbidden tile. A normal
-  battlefield click additionally requires a 72-pixel maximum distance.
-- Deploy drops use the side view; normal selection compares normal and side
-  projections to tolerate the two in-game views.
+- `StageId::MoranShuge` keeps the original 12 by 8 map. All 96 tile fields were
+  compared with the previous Rust table before migration.
+- `StageId::Jt8_3` selects ordinary JT8-3 (`main_08-17`), a 15 by 9 map with
+  its own normal and deployment camera vectors.
+- `StageMap::project` retains the existing 30 degree pitch, optional 10 degree
+  side-view yaw and 20 degree perspective model.
+- `StageMap::snap` selects the nearest non-forbidden tile. Normal battlefield
+  selection retains the existing 72-pixel limit; deployment uses the side view.
 
-The 96 stored tile fields (`buildableType`, `heightType` and `tileKey`) and the
-two camera vectors were verified against this MAA resource at commit
-`bad264489337d78882b3f93e0fb2cce4a3296f29`:
+Both maps were imported from `resource/Arknights-Tile-Pos` in MAA commit
+`bad264489337d78882b3f93e0fb2cce4a3296f29`. Their file names are recorded in
+each map's `source` object. The display name for the original crisis map remains
+墨染书阁, while JT8-3 retains its source name 昂首，足践烈焰.
 
-```text
-resource/Arknights-Tile-Pos/
-  level_crisis_v2_05-01-obt-crisis-v2-level_crisis_v2_05-01.json
-```
+`AppSettings.stage_id` is persisted and copied into immutable `RecorderOptions`
+and the input hook runtime. Changing it restarts the recorder only while idle;
+the backend rejects changes while a battle, pending OCR or runtime restart is
+in progress. The UI also disables map selection during a battle or calibration.
+Each battle captures its stage ID at creation, and record metadata retains it.
+Missing stage IDs in old settings and records default to the original map;
+unknown IDs are rejected. History remains readable across maps, but timing
+highlights and operation prompts require matching stage IDs.
 
 The source lineage is also verified: `prts-plus/src/logic/calc_view.py` uses
 the same projection model and attributes map-tile recognition to
@@ -187,11 +195,10 @@ Migration erased the pre-existing repository history, so the exact historical
 copy step cannot be proven further. `THIRD_PARTY_NOTICES.md` records both the
 confirmed MIT attribution and the MAA/PRTS+ license-review obligation.
 
-For more maps, do not add another large Rust constant to `recorder.rs`. Define
-a versioned, application-owned map-data format under `resources/maps`, attach
-the upstream source path and commit to every imported map, and load it through
-a dedicated `app-core` map module. Keep camera calibration and projection in
-that module so recorder input handling only asks for a tile match.
+To add another map, import its data into the versioned format, retain provenance,
+register a `StageId`, and extend projection and persistence checks. The backend
+provides the available-stage list to the UI. Recorder input handling only passes
+its selected stage to the shared projection module.
 
 ## Verification
 

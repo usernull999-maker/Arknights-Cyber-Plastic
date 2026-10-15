@@ -11,6 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use arknights_super_contract::{AppBootstrap, StatusChanged, TimelineUpdate, PROTOCOL_VERSION};
+use arknights_super_core::maps::{available_stages, StageId, StageInfo};
 use arknights_super_core::recorder::{
     enable_dpi_awareness, format_time_from_frames, parse_virtual_key, relaunch_as_admin_if_needed,
     run_calibration, start_recorder, AppEvent, BattleStateCode, CalibrationOptions,
@@ -34,7 +35,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsWindowVisible,
 };
 
-const STAGE_NAME: &str = "墨染书阁";
 const STATUS_EVENT: &str = "app://status";
 const TIMELINE_EVENT: &str = "app://timeline";
 const TIMELINE_INTERVAL: Duration = Duration::from_millis(50);
@@ -100,6 +100,7 @@ impl RoiBounds {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 struct AppSettings {
+    stage_id: StageId,
     config_path: String,
     skill_key: String,
     retreat_key: String,
@@ -113,8 +114,9 @@ struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            stage_id: StageId::default(),
             config_path: "config.json".to_string(),
-            skill_key: "SPACE".to_string(),
+            skill_key: "RBUTTON".to_string(),
             retreat_key: "2".to_string(),
             window_opacity: 1.0,
             always_on_top: false,
@@ -135,6 +137,7 @@ impl AppSettings {
 
     fn normalized(&self) -> Self {
         Self {
+            stage_id: self.stage_id,
             config_path: self.config_path.trim().to_string(),
             skill_key: self.skill_key.trim().to_uppercase(),
             retreat_key: self.retreat_key.trim().to_uppercase(),
@@ -149,6 +152,7 @@ impl AppSettings {
     fn to_recorder_options(&self, logs_root: PathBuf) -> Result<RecorderOptions, String> {
         let settings = self.normalized();
         Ok(RecorderOptions {
+            stage_id: settings.stage_id,
             config_path: PathBuf::from(settings.config_path),
             skill_vk: parse_optional_virtual_key(&settings.skill_key)?,
             retreat_vk: parse_optional_virtual_key(&settings.retreat_key)?,
@@ -168,6 +172,8 @@ struct RecordManifest {
 struct RecordMeta {
     id: String,
     title: String,
+    #[serde(default)]
+    stage_id: StageId,
     stage_name: String,
     file_name: String,
     created_at_ms: u64,
@@ -181,6 +187,7 @@ struct RecordMeta {
 struct RecordSummary {
     id: String,
     title: String,
+    stage_id: StageId,
     stage_name: String,
     created_at_ms: u64,
     updated_at_ms: u64,
@@ -205,6 +212,7 @@ struct UiOperationLine {
 struct ActiveBattle {
     id: String,
     title: String,
+    stage_id: StageId,
     stage_name: String,
     created_at_ms: u64,
     elapsed_frames: i32,
@@ -218,6 +226,7 @@ struct ActiveBattle {
 struct CurrentBattleSnapshot {
     id: String,
     title: String,
+    stage_id: StageId,
     stage_name: String,
     created_at_ms: u64,
     elapsed_frames: i32,
@@ -273,6 +282,7 @@ struct CalibrationSnapshot {
 
 #[derive(Clone, Serialize)]
 struct UiSnapshot {
+    available_stages: Vec<StageInfo>,
     settings: AppSettings,
     setup: SetupSnapshot,
     calibration: CalibrationSnapshot,
@@ -732,7 +742,20 @@ impl AppController {
         let changed = {
             let mut inner = self.inner.lock().expect("app controller poisoned");
             ensure_calibration_idle_locked(&mut inner)?;
-            let changed = inner.settings.config_path != normalized.config_path
+            let stage_changed = inner.settings.stage_id != normalized.stage_id;
+            let stage_locked = inner.current_battle.is_some()
+                || inner.runtime_reconcile_in_progress
+                || inner.recorder_handle.as_ref().is_some_and(|handle| {
+                    handle.clock_snapshot().battle_state.is_active_battle()
+                        || handle.pending_ocr_count() > 0
+                });
+            ensure_stage_change_allowed(
+                inner.settings.stage_id,
+                normalized.stage_id,
+                stage_locked,
+            )?;
+            let changed = stage_changed
+                || inner.settings.config_path != normalized.config_path
                 || inner.settings.skill_key != normalized.skill_key
                 || inner.settings.retreat_key != normalized.retreat_key
                 || inner.settings.operator_name_roi.left != normalized.operator_name_roi.left
@@ -1041,7 +1064,8 @@ impl AppController {
             let meta = RecordMeta {
                 id: record_id,
                 title: normalized_title,
-                stage_name: STAGE_NAME.to_string(),
+                stage_id: inner.settings.stage_id,
+                stage_name: inner.settings.stage_id.display_name(),
                 file_name,
                 created_at_ms,
                 updated_at_ms: created_at_ms,
@@ -1206,6 +1230,17 @@ fn configure_runtime_resource_root(app: &AppHandle) {
     if path.exists() {
         std::env::set_var(RESOURCE_ROOT_ENV, &path);
     }
+}
+
+fn ensure_stage_change_allowed(
+    current: StageId,
+    next: StageId,
+    locked: bool,
+) -> Result<(), String> {
+    if current != next && locked {
+        return Err("请在战斗结束、记录处理完成后切换关卡".to_string());
+    }
+    Ok(())
 }
 
 fn calibration_is_active(snapshot: &CalibrationSnapshot) -> bool {
@@ -1757,7 +1792,8 @@ fn start_new_battle_locked(
     inner.current_battle = Some(ActiveBattle {
         id: battle_id.clone(),
         title,
-        stage_name: STAGE_NAME.to_string(),
+        stage_id: inner.settings.stage_id,
+        stage_name: inner.settings.stage_id.display_name(),
         created_at_ms,
         elapsed_frames,
         battle_state: state.as_str().to_string(),
@@ -1833,6 +1869,7 @@ fn finalize_battle_locked(inner: &mut ControllerInner) -> Result<(), String> {
     inner.manifest.records.push(RecordMeta {
         id: battle.id,
         title: final_title,
+        stage_id: battle.stage_id,
         stage_name: battle.stage_name,
         file_name,
         created_at_ms: battle.created_at_ms,
@@ -1872,6 +1909,7 @@ fn build_snapshot(inner: &ControllerInner) -> UiSnapshot {
         });
 
     UiSnapshot {
+        available_stages: available_stages(),
         settings: inner.settings.clone(),
         setup: inner.setup.clone(),
         calibration: inner.calibration.clone(),
@@ -1882,6 +1920,7 @@ fn build_snapshot(inner: &ControllerInner) -> UiSnapshot {
             .map(|battle| CurrentBattleSnapshot {
                 id: battle.id.clone(),
                 title: battle.title.clone(),
+                stage_id: battle.stage_id,
                 stage_name: battle.stage_name.clone(),
                 created_at_ms: battle.created_at_ms,
                 elapsed_frames: battle.elapsed_frames,
@@ -1899,6 +1938,7 @@ fn summarize_record(record: &RecordMeta) -> RecordSummary {
     RecordSummary {
         id: record.id.clone(),
         title: record.title.clone(),
+        stage_id: record.stage_id,
         stage_name: record.stage_name.clone(),
         created_at_ms: record.created_at_ms,
         updated_at_ms: record.updated_at_ms,
@@ -2315,4 +2355,127 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("failed to run Tauri application");
+}
+
+#[cfg(test)]
+mod stage_tests {
+    use super::*;
+
+    #[test]
+    fn corrected_input_and_roi_settings_reach_recorder() {
+        let defaults = AppSettings::default();
+        let options = defaults.to_recorder_options(PathBuf::from("logs")).unwrap();
+        assert_eq!(options.skill_vk, Some(0x02));
+        assert_eq!(options.retreat_vk, Some(0x32));
+        assert!((options.detail_name_roi.width - 300.0 / 1907.0).abs() < 0.00001);
+        let settings: AppSettings = serde_json::from_str(r#"{"skill_key":"SPACE"}"#).unwrap();
+        assert_eq!(settings.to_recorder_options(PathBuf::from("logs")).unwrap().skill_vk, Some(0x20));
+        let settings: AppSettings = serde_json::from_str(r#"{"skill_key":"鼠标右键","retreat_key":""}"#).unwrap();
+        let options = settings.to_recorder_options(PathBuf::from("logs")).unwrap();
+        assert_eq!(options.skill_vk, Some(0x02));
+        assert_eq!(options.retreat_vk, None);
+    }
+
+    #[test]
+    fn old_settings_and_records_keep_the_original_stage() {
+        let settings: AppSettings = serde_json::from_str(r#"{"skill_key":"Q"}"#).unwrap();
+        assert_eq!(settings.stage_id, StageId::MoranShuge);
+        assert_eq!(settings.skill_key, "Q");
+        let record: RecordMeta = serde_json::from_str(
+            r#"{
+            "id":"old", "title":"旧记录", "stage_name":"墨染书阁", "file_name":"old.txt",
+            "created_at_ms":1, "updated_at_ms":1, "deleted":false,
+            "operation_count":1, "duration_frames":30
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(record.stage_id, StageId::MoranShuge);
+        assert_eq!(summarize_record(&record).stage_name, "墨染书阁");
+    }
+
+    #[test]
+    fn selected_stage_reaches_the_recorder_and_blocks_mid_battle_changes() {
+        let settings: AppSettings = serde_json::from_str(r#"{"stage_id":"main_08-17"}"#).unwrap();
+        let options = settings
+            .normalized()
+            .to_recorder_options(PathBuf::from("logs"))
+            .unwrap();
+        assert_eq!(options.stage_id, StageId::Jt8_3);
+        assert!(ensure_stage_change_allowed(StageId::MoranShuge, StageId::Jt8_3, true).is_err());
+        assert!(ensure_stage_change_allowed(StageId::MoranShuge, StageId::Jt8_3, false).is_ok());
+        assert!(ensure_stage_change_allowed(StageId::Jt8_3, StageId::Jt8_3, true).is_ok());
+        assert!(serde_json::from_str::<AppSettings>(r#"{"stage_id":"JT8-2"}"#).is_err());
+    }
+
+    #[test]
+    fn jt8_3_record_keeps_stage_identity_after_save_and_reload() {
+        let root = std::env::temp_dir().join(format!(
+            "arknights-jt8-3-test-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        fs::create_dir(&root).unwrap();
+        let storage = StoragePaths {
+            settings_path: root.join("settings.json"),
+            manifest_path: root.join("index.json"),
+            records_dir: root.clone(),
+            logs_root: root.join("logs"),
+            default_config_path: root.join("config.json"),
+        };
+        let settings = AppSettings {
+            stage_id: StageId::Jt8_3,
+            ..AppSettings::default()
+        };
+        save_settings(&storage.settings_path, &settings).unwrap();
+        let settings = load_settings(&storage.settings_path, &storage.default_config_path).unwrap();
+        let mut inner = ControllerInner {
+            storage: storage.clone(),
+            settings,
+            manifest: RecordManifest::default(),
+            setup: SetupSnapshot {
+                phase: SetupPhase::NeedsTarget,
+                message: String::new(),
+                config_path: String::new(),
+                calibration_path: None,
+                selected_target_fingerprint: None,
+                targets: Vec::new(),
+            },
+            calibration: CalibrationSnapshot {
+                phase: CalibrationPhase::Idle,
+                progress_percent: 0.0,
+                message: String::new(),
+                session_dir: None,
+            },
+            current_battle: None,
+            recorder_error: None,
+            logs_dir: PathBuf::new(),
+            recorder_handle: None,
+            calibration_cancel: None,
+            calibration_thread: None,
+            last_runtime_recover_attempt: None,
+            runtime_reconcile_in_progress: false,
+            runtime_session_id: None,
+            timeline_sequence: 0,
+        };
+        start_new_battle_locked(&mut inner, 30, BattleStateCode::NotInBattle);
+        let battle = inner.current_battle.as_mut().unwrap();
+        assert_eq!(battle.stage_id, StageId::Jt8_3);
+        battle.raw_content = "00:01:00 DP 阿米娅 (7, 4)\n".into();
+        battle.operations = parse_record_content(&battle.raw_content);
+        finalize_battle_locked(&mut inner).unwrap();
+        let manifest = load_manifest(&storage.manifest_path).unwrap();
+        assert_eq!(manifest.records.len(), 1);
+        let record = &manifest.records[0];
+        assert_eq!(record.stage_id, StageId::Jt8_3);
+        assert_eq!(record.stage_name, "JT8-3 昂首，足践烈焰");
+        let content = fs::read_to_string(root.join(&record.file_name)).unwrap();
+        assert_eq!(
+            parse_record_content(&content)[0].tile,
+            Some(TileCoord { x: 7, y: 4 })
+        );
+        for file in [&record.file_name, "index.json", "settings.json"] {
+            fs::remove_file(root.join(file)).unwrap();
+        }
+        fs::remove_dir(root).unwrap();
+    }
 }

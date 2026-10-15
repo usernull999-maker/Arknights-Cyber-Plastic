@@ -1,5 +1,8 @@
+pub use crate::maps::PointI32;
+use crate::maps::{StageId, TileMatch};
 use crate::runtime::{FrameTimeline, InputStamp, ObservationStamp};
 use std::any::Any;
+use std::collections::HashSet;
 use std::ffi::{c_void, OsStr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{
@@ -44,7 +47,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsWindow, IsWindowVisible, PostThreadMessageW, SetWindowsHookExW, TranslateMessage,
     UnhookWindowsHookEx, WindowFromPoint, GA_ROOT, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT, MSG,
     MSLLHOOKSTRUCT, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_LBUTTONUP, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 pub const FRAMES_PER_SECOND: i32 = 30;
@@ -70,9 +73,9 @@ const COST_SIGN_TOP_OFFSET_FROM_BOTTOM_REF: f64 = 208.0;
 const COST_SIGN_BOTTOM_OFFSET_FROM_BOTTOM_REF: f64 = 201.0;
 const OPER_NAME_LINE_CROP_RELATIVE_RECT: RelativeRectF32 = RelativeRectF32 {
     x: 0.0,
-    y: 0.30,
-    width: 0.80,
-    height: 0.54,
+    y: 0.10,
+    width: 1.0,
+    height: 0.65,
 };
 const MAA_TASKS_JSON_PATH: &str = "ocr/tasks/tasks.json";
 const MAA_PADDLE_OCR_REC_MODEL_PATH: &str = "ocr/rec/inference.onnx";
@@ -96,6 +99,7 @@ fn hook_runtime_slot() -> &'static Mutex<Option<HookRuntime>> {
 
 #[derive(Clone, Debug)]
 pub struct RecorderOptions {
+    pub stage_id: StageId,
     pub config_path: PathBuf,
     pub skill_vk: Option<u32>,
     pub retreat_vk: Option<u32>,
@@ -107,6 +111,7 @@ pub struct RecorderOptions {
 impl Default for RecorderOptions {
     fn default() -> Self {
         Self {
+            stage_id: StageId::default(),
             config_path: PathBuf::from("config.json"),
             skill_vk: None,
             retreat_vk: None,
@@ -138,6 +143,13 @@ impl RecorderOptions {
                         .get(index)
                         .ok_or_else(|| "missing value after --config".to_string())?;
                     options.config_path = PathBuf::from(value);
+                }
+                "--stage" => {
+                    index += 1;
+                    let value = args
+                        .get(index)
+                        .ok_or_else(|| "missing value after --stage".to_string())?;
+                    options.stage_id = StageId::parse(value)?;
                 }
                 "--skill-key" => {
                     index += 1;
@@ -207,7 +219,8 @@ pub struct CalibrationOutcome {
 fn print_help() {
     println!("Usage: arknights-super [OPTIONS]");
     println!("  -c, --config PATH      CostBarRuler config.json path (default: config.json)");
-    println!("      --skill-key KEY    Skill hotkey, e.g. Q / F / F1");
+    println!("      --stage STAGE      Map: JT8-3 / level_crisis_v2_05-01 (default)");
+    println!("      --skill-key KEY    Skill hotkey, e.g. RBUTTON / Q / F1");
     println!("      --retreat-key KEY  Retreat hotkey, e.g. E / R / F2");
     println!("  -h, --help             Show this help");
 }
@@ -222,6 +235,7 @@ pub fn parse_virtual_key(value: &str) -> Result<u32, String> {
     }
 
     match upper.as_str() {
+        "RBUTTON" | "RMB" | "MOUSE_RIGHT" | "鼠标右键" => Ok(0x02),
         "SPACE" => Ok(0x20),
         "TAB" => Ok(0x09),
         "ESC" | "ESCAPE" => Ok(0x1B),
@@ -563,12 +577,6 @@ struct ClockSnapshot {
     height: u32,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct PointI32 {
-    x: i32,
-    y: i32,
-}
-
 #[derive(Clone, Copy, Debug)]
 struct RectI32 {
     x: i32,
@@ -727,34 +735,6 @@ pub struct RelativeRectF32 {
     pub height: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct StageTileSpec {
-    x: i32,
-    y: i32,
-    buildable_type: i32,
-    height_type: i32,
-    tile_key: &'static str,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct StageMap {
-    width: i32,
-    height: i32,
-    normal_view: [f64; 3],
-    side_view: [f64; 3],
-    tiles: &'static [StageTileSpec],
-}
-
-#[derive(Clone, Copy, Debug)]
-struct TileMatch {
-    x: i32,
-    y: i32,
-    buildable_type: i32,
-    tile_key: &'static str,
-    screen: PointI32,
-    distance_px: f64,
-}
-
 #[derive(Clone, Debug)]
 struct DetailNameCrop {
     elapsed_frames: i32,
@@ -822,10 +802,12 @@ const DEPLOY_FACING_START_SNAP_PX: i32 = 64;
 const DEPLOY_FACING_CONFIRM_WINDOW_FRAMES: i32 = FRAMES_PER_SECOND * 2;
 
 struct HookRuntime {
+    stage_id: StageId,
     tx: Sender<AppEvent>,
     clock: Arc<SharedClockState>,
     skill_vk: Option<u32>,
     retreat_vk: Option<u32>,
+    pressed_hotkeys: Mutex<HashSet<u32>>,
     pending_drag: Mutex<Option<PendingDrag>>,
     selected_tile: Mutex<Option<TileMatch>>,
     pending_deploy: Mutex<Option<PendingDeploy>>,
@@ -929,7 +911,8 @@ enum RawInputKind {
         foreground_hwnd: isize,
         foreground_root_hwnd: isize,
     },
-    MouseLeft {
+    MouseButton {
+        vk: u32,
         action: MouseAction,
         screen: PointI32,
         client: Option<PointI32>,
@@ -1137,821 +1120,30 @@ pub struct UserAction {
     pub tile: Option<TileCoord>,
 }
 
-const STAGE_MORAN_SHUGE_TILES: [StageTileSpec; 96] = [
-    StageTileSpec {
-        x: 0,
-        y: 0,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 1,
-        y: 0,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 2,
-        y: 0,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 3,
-        y: 0,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 4,
-        y: 0,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 5,
-        y: 0,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_end",
-    },
-    StageTileSpec {
-        x: 6,
-        y: 0,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 7,
-        y: 0,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 8,
-        y: 0,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 9,
-        y: 0,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 10,
-        y: 0,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 11,
-        y: 0,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 0,
-        y: 1,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 1,
-        y: 1,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 2,
-        y: 1,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 3,
-        y: 1,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 4,
-        y: 1,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 5,
-        y: 1,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 6,
-        y: 1,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 7,
-        y: 1,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 8,
-        y: 1,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 9,
-        y: 1,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 10,
-        y: 1,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_floor",
-    },
-    StageTileSpec {
-        x: 11,
-        y: 1,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_start",
-    },
-    StageTileSpec {
-        x: 0,
-        y: 2,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 1,
-        y: 2,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_telout",
-    },
-    StageTileSpec {
-        x: 2,
-        y: 2,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 3,
-        y: 2,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 4,
-        y: 2,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 5,
-        y: 2,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 6,
-        y: 2,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 7,
-        y: 2,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_fence_bound",
-    },
-    StageTileSpec {
-        x: 8,
-        y: 2,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 9,
-        y: 2,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 10,
-        y: 2,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 11,
-        y: 2,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 0,
-        y: 3,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 1,
-        y: 3,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_fence_bound",
-    },
-    StageTileSpec {
-        x: 2,
-        y: 3,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 3,
-        y: 3,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 4,
-        y: 3,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 5,
-        y: 3,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 6,
-        y: 3,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 7,
-        y: 3,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 8,
-        y: 3,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 9,
-        y: 3,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 10,
-        y: 3,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 11,
-        y: 3,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_start",
-    },
-    StageTileSpec {
-        x: 0,
-        y: 4,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 1,
-        y: 4,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 2,
-        y: 4,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_hole",
-    },
-    StageTileSpec {
-        x: 3,
-        y: 4,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 4,
-        y: 4,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 5,
-        y: 4,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 6,
-        y: 4,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 7,
-        y: 4,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_floor",
-    },
-    StageTileSpec {
-        x: 8,
-        y: 4,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 9,
-        y: 4,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 10,
-        y: 4,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 11,
-        y: 4,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 0,
-        y: 5,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 1,
-        y: 5,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 2,
-        y: 5,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_hole",
-    },
-    StageTileSpec {
-        x: 3,
-        y: 5,
-        buildable_type: 2,
-        height_type: 1,
-        tile_key: "tile_wall",
-    },
-    StageTileSpec {
-        x: 4,
-        y: 5,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 5,
-        y: 5,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 6,
-        y: 5,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 7,
-        y: 5,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_floor",
-    },
-    StageTileSpec {
-        x: 8,
-        y: 5,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 9,
-        y: 5,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_flystart",
-    },
-    StageTileSpec {
-        x: 10,
-        y: 5,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 11,
-        y: 5,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_telin",
-    },
-    StageTileSpec {
-        x: 0,
-        y: 6,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 1,
-        y: 6,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 2,
-        y: 6,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_hole",
-    },
-    StageTileSpec {
-        x: 3,
-        y: 6,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 4,
-        y: 6,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_end",
-    },
-    StageTileSpec {
-        x: 5,
-        y: 6,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 6,
-        y: 6,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_start",
-    },
-    StageTileSpec {
-        x: 7,
-        y: 6,
-        buildable_type: 0,
-        height_type: 0,
-        tile_key: "tile_floor",
-    },
-    StageTileSpec {
-        x: 8,
-        y: 6,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 9,
-        y: 6,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_road",
-    },
-    StageTileSpec {
-        x: 10,
-        y: 6,
-        buildable_type: 1,
-        height_type: 0,
-        tile_key: "tile_character",
-    },
-    StageTileSpec {
-        x: 11,
-        y: 6,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 0,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 1,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 2,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 3,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 4,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 5,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 6,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 7,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 8,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 9,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 10,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-    StageTileSpec {
-        x: 11,
-        y: 7,
-        buildable_type: 0,
-        height_type: 1,
-        tile_key: "tile_forbidden",
-    },
-];
-
-const STAGE_MORAN_SHUGE: StageMap = StageMap {
-    width: 12,
-    height: 8,
-    normal_view: [0.0, -6.1, -9.76],
-    side_view: [0.9448062140292399, -6.6, -10.61172366939915],
-    tiles: &STAGE_MORAN_SHUGE_TILES,
-};
-
-fn current_stage_map() -> &'static StageMap {
-    &STAGE_MORAN_SHUGE
-}
-
-fn project_stage_tile(
-    stage: &StageMap,
-    tile: StageTileSpec,
-    width: f64,
-    height: f64,
-    side: bool,
-) -> Option<PointI32> {
-    if width <= 0.0 || height <= 0.0 {
-        return None;
-    }
-
-    let ratio = height / width;
-    let from_ratio = 9.0 / 16.0;
-    let to_ratio = 3.0 / 4.0;
-    let t = (from_ratio - ratio) / (from_ratio - to_ratio);
-    let view = if side {
-        stage.side_view
-    } else {
-        stage.normal_view
-    };
-    let camera_x = view[0] - 1.4 * t;
-    let camera_y = view[1] - 2.8 * t;
-    let camera_z = view[2];
-
-    let mut x = tile.x as f64 - (stage.width as f64 - 1.0) / 2.0 - camera_x;
-    let mut y = (stage.height as f64 - 1.0) / 2.0 - tile.y as f64 - camera_y;
-    let mut z = tile.height_type as f64 * -0.4 - camera_z;
-
-    if side {
-        let yaw = 10.0_f64.to_radians();
-        let cos_yaw = yaw.cos();
-        let sin_yaw = yaw.sin();
-        let next_x = cos_yaw * x + sin_yaw * z;
-        let next_z = -sin_yaw * x + cos_yaw * z;
-        x = next_x;
-        z = next_z;
-    }
-
-    let pitch = 30.0_f64.to_radians();
-    let cos_pitch = pitch.cos();
-    let sin_pitch = pitch.sin();
-    let next_y = cos_pitch * y - sin_pitch * z;
-    let next_z = -sin_pitch * y - cos_pitch * z;
-    y = next_y;
-    z = next_z;
-
-    if z == 0.0 {
-        return None;
-    }
-
-    let tan_fov = 20.0_f64.to_radians().tan();
-    let clip_x = (ratio / tan_fov) * x / -z;
-    let clip_y = (1.0 / tan_fov) * y / -z;
-    let screen_x = ((clip_x + 1.0) * 0.5 * width).round() as i32;
-    let screen_y = ((1.0 - ((clip_y + 1.0) * 0.5)) * height).round() as i32;
-    Some(PointI32 {
-        x: screen_x,
-        y: screen_y,
-    })
-}
-
-fn snap_client_to_stage_tile(
-    stage: &StageMap,
+fn snap_deploy_end_tile(
+    stage_id: StageId,
     client: PointI32,
-    width: u32,
-    height: u32,
-    side: bool,
+    snapshot: ClockSnapshot,
 ) -> Option<TileMatch> {
-    let mut best: Option<TileMatch> = None;
-    for tile in stage
-        .tiles
-        .iter()
-        .copied()
-        .filter(|tile| tile.tile_key != "tile_forbidden")
-    {
-        let Some(screen) = project_stage_tile(stage, tile, width as f64, height as f64, side)
-        else {
-            continue;
-        };
-        let dx = screen.x - client.x;
-        let dy = screen.y - client.y;
-        let distance_px = ((dx * dx + dy * dy) as f64).sqrt();
-        let candidate = TileMatch {
-            x: tile.x,
-            y: tile.y,
-            buildable_type: tile.buildable_type,
-            tile_key: tile.tile_key,
-            screen,
-            distance_px,
-        };
-        if best
-            .map(|current| candidate.distance_px < current.distance_px)
-            .unwrap_or(true)
-        {
-            best = Some(candidate);
-        }
-    }
-    best
+    stage_id
+        .map()
+        .snap(client, snapshot.width, snapshot.height, true)
 }
 
-fn snap_deploy_end_tile(client: PointI32, snapshot: ClockSnapshot) -> Option<TileMatch> {
-    snap_client_to_stage_tile(
-        current_stage_map(),
-        client,
-        snapshot.width,
-        snapshot.height,
-        true,
-    )
-}
-
-fn snap_battlefield_selection_tile(client: PointI32, snapshot: ClockSnapshot) -> Option<TileMatch> {
+fn snap_battlefield_selection_tile(
+    stage_id: StageId,
+    client: PointI32,
+    snapshot: ClockSnapshot,
+) -> Option<TileMatch> {
     if !snapshot.battle_state.allows_battlefield_selection() {
         return None;
     }
-    let normal = snap_client_to_stage_tile(
-        current_stage_map(),
-        client,
-        snapshot.width,
-        snapshot.height,
-        false,
-    );
-    let side = snap_client_to_stage_tile(
-        current_stage_map(),
-        client,
-        snapshot.width,
-        snapshot.height,
-        true,
-    );
+    let normal = stage_id
+        .map()
+        .snap(client, snapshot.width, snapshot.height, false);
+    let side = stage_id
+        .map()
+        .snap(client, snapshot.width, snapshot.height, true);
     let tile = match (normal, side) {
         (Some(lhs), Some(rhs)) => {
             if lhs.distance_px <= rhs.distance_px {
@@ -2697,8 +1889,10 @@ fn preprocess_detail_crop_binary_rgb(crop: &DetailNameCrop) -> Vec<u8> {
         let r = pixel[2];
         let max = r.max(g).max(b);
         let min = r.min(g).min(b);
+        // White reaches 255_000 before division, beyond u16. Wrapping made the
+        // release binary erase bright text; debug builds panicked instead.
         let luminance =
-            ((u16::from(r) * 299 + u16::from(g) * 587 + u16::from(b) * 114) / 1000) as u8;
+            ((u32::from(r) * 299 + u32::from(g) * 587 + u32::from(b) * 114) / 1000) as u8;
         let likely_text =
             luminance >= OPER_NAME_PREPROCESS_THRESHOLD && max.saturating_sub(min) <= 96;
         let value = if likely_text { 0 } else { 255 };
@@ -2755,14 +1949,13 @@ fn resize_rgb_bilinear(
 }
 
 fn detail_crop_variants(crop: &DetailNameCrop) -> Vec<DetailNameCrop> {
-    let mut variants = Vec::with_capacity(3);
-    variants.push(crop.clone());
+    let mut variants = Vec::with_capacity(2);
+    // Keep the entire name width and its upper strokes. Recursively shrinking
+    // this region used to turn complete names into one or two partial glyphs.
     if let Some(name_line) = crop_detail_name_line(crop) {
-        variants.push(name_line.clone());
-        if let Some(name_line_tighter) = crop_detail_name_line(&name_line) {
-            variants.push(name_line_tighter);
-        }
+        variants.push(name_line);
     }
+    variants.push(crop.clone());
     variants
 }
 
@@ -2806,6 +1999,12 @@ fn crop_detail_by_relative_rect(
 }
 
 fn score_name_candidate(text: &str) -> i32 {
+    if !text
+        .chars()
+        .any(|ch| ch.is_ascii_alphabetic() || ('\u{3400}'..='\u{9FFF}').contains(&ch))
+    {
+        return 0;
+    }
     let mut score = 0;
     for ch in text.chars() {
         if is_operator_name_char(ch) {
@@ -3056,13 +2255,16 @@ impl HookThread {
         clock: Arc<SharedClockState>,
         skill_vk: Option<u32>,
         retreat_vk: Option<u32>,
+        stage_id: StageId,
         capture_dir: PathBuf,
     ) -> Result<Self, String> {
         let runtime = HookRuntime {
+            stage_id,
             tx,
             clock,
             skill_vk,
             retreat_vk,
+            pressed_hotkeys: Mutex::new(HashSet::new()),
             pending_drag: Mutex::new(None),
             selected_tile: Mutex::new(None),
             pending_deploy: Mutex::new(None),
@@ -3199,6 +2401,8 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
         match wparam.0 as u32 {
             WM_LBUTTONDOWN => handle_left_button_down(hook.pt),
             WM_LBUTTONUP => handle_left_button_up(hook.pt),
+            WM_RBUTTONDOWN => handle_right_button_event(hook.pt, KeyAction::Down),
+            WM_RBUTTONUP => handle_right_button_event(hook.pt, KeyAction::Up),
             _ => {}
         }
     }
@@ -3239,7 +2443,92 @@ fn handle_keyboard_event(hook: &KBDLLHOOKSTRUCT, action: KeyAction) {
     );
     let _ = runtime.tx.send(AppEvent::RawInput(raw_event));
 
-    if !foreground.matches || !matches!(action, KeyAction::Down) {
+    record_bound_hotkey(runtime, hook.vkCode, action, snapshot, foreground.matches);
+}
+
+fn handle_right_button_event(screen: POINT, action: KeyAction) {
+    let runtime_guard = hook_runtime_slot()
+        .lock()
+        .expect("hook runtime slot poisoned");
+    let Some(runtime) = runtime_guard.as_ref() else {
+        return;
+    };
+    let snapshot = runtime.clock.snapshot_for_input();
+    let foreground = foreground_status(snapshot.target_hwnd);
+    let client = screen_to_client(snapshot, screen);
+    let raw_event = RawInputEvent::from_clock(
+        RawInputKind::MouseButton {
+            vk: 0x02,
+            action: match action {
+                KeyAction::Down => MouseAction::Down,
+                KeyAction::Up => MouseAction::Up,
+            },
+            screen: PointI32 {
+                x: screen.x,
+                y: screen.y,
+            },
+            client,
+            point_root_hwnd: root_window_from_point(screen),
+            foreground_match: foreground.matches,
+            target_hwnd: foreground.target_hwnd,
+            foreground_hwnd: foreground.foreground_hwnd,
+            foreground_root_hwnd: foreground.foreground_root_hwnd,
+        },
+        snapshot,
+    );
+    let _ = runtime.tx.send(AppEvent::RawInput(raw_event));
+    record_bound_hotkey(
+        runtime,
+        0x02,
+        action,
+        snapshot,
+        foreground.matches && client.is_some(),
+    );
+}
+
+fn hotkey_pressed_once(
+    pressed: &mut HashSet<u32>,
+    vk: u32,
+    action: KeyAction,
+    target_matches: bool,
+) -> bool {
+    match action {
+        KeyAction::Up => {
+            pressed.remove(&vk);
+            false
+        }
+        // Track down edges even outside the target, so a held key cannot become
+        // a fresh action just by switching focus back to the emulator.
+        KeyAction::Down => pressed.insert(vk) && target_matches,
+    }
+}
+
+fn record_bound_hotkey(
+    runtime: &HookRuntime,
+    vk: u32,
+    action: KeyAction,
+    snapshot: ClockSnapshot,
+    target_matches: bool,
+) {
+    let skill_match = runtime
+        .skill_vk
+        .is_some_and(|configured| key_matches(vk, configured));
+    let retreat_match = runtime
+        .retreat_vk
+        .is_some_and(|configured| key_matches(vk, configured));
+    if !skill_match && !retreat_match {
+        return;
+    }
+    let pressed_once = hotkey_pressed_once(
+        &mut runtime
+            .pressed_hotkeys
+            .lock()
+            .expect("pressed_hotkeys poisoned"),
+        vk,
+        action,
+        target_matches,
+    );
+    if !pressed_once {
         return;
     }
 
@@ -3250,7 +2539,7 @@ fn handle_keyboard_event(hook: &KBDLLHOOKSTRUCT, action: KeyAction) {
             .expect("selected_tile poisoned");
         let detail_capture = dump_detail_capture(runtime, "skill", snapshot);
         Some(OperationKind::SkillHotkey {
-            vk: hook.vkCode,
+            vk,
             selected_tile,
             detail_capture,
             detail_name: None,
@@ -3262,7 +2551,7 @@ fn handle_keyboard_event(hook: &KBDLLHOOKSTRUCT, action: KeyAction) {
             .expect("selected_tile poisoned");
         let detail_capture = dump_detail_capture(runtime, "retreat", snapshot);
         Some(OperationKind::RetreatHotkey {
-            vk: hook.vkCode,
+            vk,
             selected_tile,
             detail_capture,
             detail_name: None,
@@ -3289,7 +2578,8 @@ fn handle_left_button_down(screen: POINT) {
     let point_root_hwnd = root_window_from_point(screen);
     let Some(client) = screen_to_client(snapshot, screen) else {
         let raw_event = RawInputEvent::from_clock(
-            RawInputKind::MouseLeft {
+            RawInputKind::MouseButton {
+                vk: 0x01,
                 action: MouseAction::Down,
                 screen: PointI32 {
                     x: screen.x,
@@ -3310,7 +2600,8 @@ fn handle_left_button_down(screen: POINT) {
         return;
     };
     let raw_event = RawInputEvent::from_clock(
-        RawInputKind::MouseLeft {
+        RawInputKind::MouseButton {
+            vk: 0x01,
             action: MouseAction::Down,
             screen: PointI32 {
                 x: screen.x,
@@ -3349,7 +2640,8 @@ fn handle_left_button_up(screen: POINT) {
     let mut guard = runtime.pending_drag.lock().expect("pending_drag poisoned");
     let Some(pending) = guard.take() else {
         let raw_event = RawInputEvent::from_clock(
-            RawInputKind::MouseLeft {
+            RawInputKind::MouseButton {
+                vk: 0x01,
                 action: MouseAction::Up,
                 screen: PointI32 {
                     x: screen.x,
@@ -3370,7 +2662,8 @@ fn handle_left_button_up(screen: POINT) {
 
     let end_client = screen_to_client(snapshot, screen);
     let raw_event = RawInputEvent::from_clock(
-        RawInputKind::MouseLeft {
+        RawInputKind::MouseButton {
+            vk: 0x01,
             action: MouseAction::Up,
             screen: PointI32 {
                 x: screen.x,
@@ -3396,7 +2689,7 @@ fn handle_left_button_up(screen: POINT) {
     let is_drag = dx.abs().max(dy.abs()) >= DRAG_THRESHOLD_PX;
     let kind = if is_drag {
         let deploy_end_tile = if snapshot.battle_state == BattleStateCode::DeployingOperator {
-            snap_deploy_end_tile(end_client, snapshot)
+            snap_deploy_end_tile(runtime.stage_id, end_client, snapshot)
         } else {
             None
         };
@@ -3428,7 +2721,7 @@ fn handle_left_button_up(screen: POINT) {
         }
     } else {
         let selected_tile = if foreground.matches {
-            snap_battlefield_selection_tile(pending.client, snapshot)
+            snap_battlefield_selection_tile(runtime.stage_id, pending.client, snapshot)
         } else {
             None
         };
@@ -4869,7 +4162,8 @@ fn format_raw_input_event(event: &RawInputEvent) -> String {
             foreground_hwnd,
             foreground_root_hwnd
         ),
-        RawInputKind::MouseLeft {
+        RawInputKind::MouseButton {
+            vk,
             action,
             screen,
             client,
@@ -4883,12 +4177,13 @@ fn format_raw_input_event(event: &RawInputEvent) -> String {
                 .map(|point| format!("({}, {})", point.x, point.y))
                 .unwrap_or_else(|| "none".to_string());
             format!(
-                "[raw-mouse] {} elapsed={} logical={}/{} state={} button=left action={} screen=({}, {}) client={} point_root=0x{:X} foreground_match={} target_hwnd=0x{:X} foreground_hwnd=0x{:X} foreground_root=0x{:X}",
+                "[raw-mouse] {} elapsed={} logical={}/{} state={} button={} action={} screen=({}, {}) client={} point_root=0x{:X} foreground_match={} target_hwnd=0x{:X} foreground_hwnd=0x{:X} foreground_root=0x{:X}",
                 time,
                 event.elapsed_frames,
                 logical_frame,
                 event.total_frames_in_cycle,
                 event.battle_state.as_str(),
+                if vk == 0x02 { "right" } else { "left" },
                 action.as_str(),
                 screen.x,
                 screen.y,
@@ -4913,6 +4208,7 @@ fn yes_no(value: bool) -> &'static str {
 
 fn format_virtual_key(vk: u32) -> String {
     match vk {
+        0x02 => "RBUTTON".to_string(),
         0x20 => "SPACE".to_string(),
         0x09 => "TAB".to_string(),
         0x1B => "ESC".to_string(),
@@ -5184,7 +4480,8 @@ fn init_system_logger(path: &Path) -> Result<(), String> {
 
 fn session_header_line(options: &RecorderOptions, log_paths: &RuntimeLogPaths) -> String {
     format!(
-        "[session] started_at_unix={} config='{}' skill_key={} retreat_key={} logs_dir='{}' system_log='{}' event_log='{}' capture_dir='{}'",
+        "[session] stage={} started_at_unix={} config='{}' skill_key={} retreat_key={} logs_dir='{}' system_log='{}' event_log='{}' capture_dir='{}'",
+        options.stage_id.as_str(),
         unix_timestamp_seconds(),
         options.config_path.display(),
         options
@@ -5289,6 +4586,8 @@ impl RecorderHandle {
 }
 
 pub fn start_recorder(options: RecorderOptions) -> Result<RecorderLaunch, String> {
+    // Parse embedded data before installing latency-sensitive input hooks.
+    let _ = options.stage_id.map();
     let log_paths = RuntimeLogPaths::create(&options.logs_root)?;
     init_system_logger(&log_paths.system_log_path)?;
 
@@ -5314,6 +4613,7 @@ pub fn start_recorder(options: RecorderOptions) -> Result<RecorderLaunch, String
         Arc::clone(&shared_clock),
         options.skill_vk,
         options.retreat_vk,
+        options.stage_id,
         log_paths.capture_dir.clone(),
     ) {
         Ok(thread) => thread,
@@ -5384,4 +4684,181 @@ fn unix_timestamp_millis() -> u128 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
+}
+
+#[cfg(test)]
+mod input_and_ocr_tests {
+    use super::*;
+
+    #[test]
+    fn right_mouse_binding_records_one_skill_and_space_records_none() {
+        for name in ["RBUTTON", "rmb", "MOUSE_RIGHT", "鼠标右键"] {
+            assert_eq!(parse_virtual_key(name).unwrap(), 0x02);
+        }
+        let (tx, rx) = unbounded();
+        let runtime = HookRuntime {
+            stage_id: StageId::Jt8_3,
+            tx,
+            clock: Arc::new(SharedClockState::new(DEFAULT_OPER_NAME_ROI_RELATIVE_RECT)),
+            skill_vk: Some(parse_virtual_key("RBUTTON").unwrap()),
+            retreat_vk: Some(parse_virtual_key("2").unwrap()),
+            pressed_hotkeys: Mutex::new(HashSet::new()),
+            pending_drag: Mutex::new(None),
+            selected_tile: Mutex::new(None),
+            pending_deploy: Mutex::new(None),
+            capture_dir: PathBuf::new(),
+            capture_sequence: AtomicU32::new(0),
+        };
+        let snapshot = runtime.clock.snapshot_for_input();
+        for (vk, action) in [
+            (0x20, KeyAction::Down),
+            (0x20, KeyAction::Up),
+            (0x02, KeyAction::Down),
+            (0x02, KeyAction::Down),
+            (0x02, KeyAction::Up),
+        ] {
+            record_bound_hotkey(&runtime, vk, action, snapshot, true);
+        }
+        let events: Vec<_> = rx.try_iter().collect();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            &events[0],
+            AppEvent::Operation(OperationEvent {
+                kind: OperationKind::SkillHotkey { vk: 0x02, .. },
+                ..
+            })
+        ));
+        record_bound_hotkey(&runtime, 0x02, KeyAction::Down, snapshot, false);
+        record_bound_hotkey(&runtime, 0x02, KeyAction::Down, snapshot, true);
+        record_bound_hotkey(&runtime, 0x02, KeyAction::Up, snapshot, false);
+        assert!(rx.is_empty());
+        record_bound_hotkey(&runtime, 0x02, KeyAction::Down, snapshot, true);
+        assert_eq!(rx.try_iter().count(), 1);
+        // Existing numeric / numpad retreat bindings still work, once per press.
+        record_bound_hotkey(&runtime, 0x62, KeyAction::Down, snapshot, true);
+        record_bound_hotkey(&runtime, 0x62, KeyAction::Down, snapshot, true);
+        record_bound_hotkey(&runtime, 0x62, KeyAction::Up, snapshot, true);
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            AppEvent::Operation(OperationEvent {
+                kind: OperationKind::RetreatHotkey { vk: 0x62, .. },
+                ..
+            })
+        ));
+        assert!(rx.is_empty());
+    }
+
+    #[test]
+    fn name_line_preserves_right_edge_and_upper_strokes() {
+        let rect = scaled_oper_name_rect(2560, 1440, DEFAULT_OPER_NAME_ROI_RELATIVE_RECT).unwrap();
+        assert_eq!((rect.width, rect.height), (403, 108));
+        let crop = DetailNameCrop {
+            elapsed_frames: 565,
+            width: rect.width as u32,
+            height: rect.height as u32,
+            data_bgr: (0..rect.height)
+                .flat_map(|y| (0..rect.width).flat_map(move |x| [x as u8, y as u8, 255]))
+                .collect(),
+        };
+        let variants = detail_crop_variants(&crop);
+        assert_eq!(variants.len(), 2);
+        for sample in &variants {
+            assert_eq!(sample.width, crop.width);
+            assert_eq!(sample.elapsed_frames, crop.elapsed_frames);
+            let offset = (sample.width as usize - 1) * 3;
+            assert_eq!(sample.data_bgr[offset], (crop.width - 1) as u8);
+        }
+        let line = &variants[0];
+        // The saved captures have glyphs above row 32; the old 30% inset cut them off.
+        assert_eq!(line.data_bgr[1], 11);
+        assert_eq!(line.height, 70);
+    }
+
+    #[test]
+    fn punctuation_and_numeric_noise_are_not_operator_names() {
+        for text in ["", "-", ".", "..", "“”", "123", "???"] {
+            assert!(score_name_candidate(text) <= 0, "{text}");
+        }
+        for text in ["遥", "瑰盐", "可露希尔", "12F", "Friston-3", "THRM-EX"] {
+            assert!(score_name_candidate(text) > 0, "{text}");
+        }
+    }
+
+    #[test]
+    fn binary_preprocessing_preserves_bright_text_without_overflow() {
+        let crop = DetailNameCrop {
+            elapsed_frames: 0,
+            width: 6,
+            height: 1,
+            data_bgr: vec![
+                255, 255, 255, // white lettering
+                200, 200, 200, // gray lettering
+                160, 160, 160, // threshold
+                159, 159, 159, // just below threshold
+                0, 0, 0, // background
+                0, 255, 0, // saturated UI decoration
+            ],
+        };
+        assert_eq!(
+            preprocess_detail_crop_binary_rgb(&crop),
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255,]
+        );
+        let (tensor, width) =
+            preprocess_detail_crop_for_paddle(&crop, true, 48, 320, 1024).unwrap();
+        assert_eq!(width, 320);
+        assert_eq!(tensor[0], -1.0);
+        assert!(tensor
+            .iter()
+            .all(|value| value.is_finite() && (-1.0..=1.0).contains(value)));
+    }
+
+    // Opt-in regression replay against the recorder's own saved BMP captures.
+    // Run with ARKNIGHTS_OCR_REPLAY_DIR and the bundled resources available.
+    #[test]
+    #[ignore = "requires saved captures and ONNX OCR resources"]
+    fn replay_saved_ocr_captures() {
+        let root = PathBuf::from(
+            std::env::var_os("ARKNIGHTS_OCR_REPLAY_DIR").expect("set replay directory"),
+        );
+        let resolver = OperatorNameRecognizer::new();
+        assert!(
+            resolver.engine.is_some(),
+            "OCR resources could not be loaded"
+        );
+        let mut files: Vec<_> = fs::read_dir(root)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "bmp"))
+            .collect();
+        files.sort();
+        assert!(!files.is_empty());
+        for path in files {
+            let bmp = fs::read(&path).unwrap();
+            assert_eq!(&bmp[..2], b"BM");
+            assert_eq!(u16::from_le_bytes(bmp[28..30].try_into().unwrap()), 24);
+            let offset = u32::from_le_bytes(bmp[10..14].try_into().unwrap()) as usize;
+            let width = i32::from_le_bytes(bmp[18..22].try_into().unwrap());
+            let height = i32::from_le_bytes(bmp[22..26].try_into().unwrap());
+            assert!(width > 0 && height > 0);
+            let stride = (width as usize * 3 + 3) & !3;
+            let mut data_bgr = Vec::new();
+            for row in (0..height as usize).rev() {
+                let start = offset + row * stride;
+                data_bgr.extend_from_slice(&bmp[start..start + width as usize * 3]);
+            }
+            let crop = DetailNameCrop {
+                elapsed_frames: 0,
+                width: width as u32,
+                height: height as u32,
+                data_bgr,
+            };
+            println!(
+                "{}",
+                serde_json::json!({
+                    "file": path.file_name().unwrap().to_string_lossy(),
+                    "name": resolver.recognize_detail_name(&crop),
+                })
+            );
+        }
+    }
 }

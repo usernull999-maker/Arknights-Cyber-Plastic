@@ -25,7 +25,7 @@ the submodule and apply to that dependency.
 
 ## Map tile projection and map data
 
-The grid projection in `crates/app-core/src/recorder.rs` follows the public
+The grid projection in `crates/app-core/src/maps.rs` follows the public
 implementation lineage documented by
 [`yuanyan3060/Arknights-Tile-Pos`](https://github.com/yuanyan3060/Arknights-Tile-Pos).
 That repository is MIT licensed and requests attribution with its GitHub URL.
@@ -54,9 +54,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-The stored fields of the current 12 by 8 static table and its camera vectors
-match `resource/Arknights-Tile-Pos/level_crisis_v2_05-01-obt-crisis-v2-level_crisis_v2_05-01.json`
-in MaaAssistantArknights commit `bad264489337d78882b3f93e0fb2cce4a3296f29`.
+The normalized maps in `resources/maps` were imported from MaaAssistantArknights
+commit `bad264489337d78882b3f93e0fb2cce4a3296f29`:
+
+- `moran-shuge.json`: `resource/Arknights-Tile-Pos/level_crisis_v2_05-01-obt-crisis-v2-level_crisis_v2_05-01.json`
+- `jt8-3.json`: `resource/Arknights-Tile-Pos/main_08-17-obt-main-level_main_08-17.json`
+
+The original 96 tile fields and cameras were preserved when moving the former
+Rust table into JSON. Each JSON file includes the original file's SHA-256 and
+source URL components. The original map's display name is retained locally.
 MaaAssistantArknights declares `AGPL-3.0-only`. The historical `prts-plus`
 checkout also states that its map data came from MaaAssistantArknights and is
 itself AGPL-3.0 licensed.
